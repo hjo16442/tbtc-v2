@@ -1,6 +1,11 @@
 name: Bitcoin Regtest PoC Environment
 
 on:
+  push:
+    branches:
+      - poc/bitcoin-regtest-environment
+    paths:
+      - ".github/workflows/bitcoin-regtest-poc.yml"
   workflow_dispatch:
   pull_request:
     paths:
