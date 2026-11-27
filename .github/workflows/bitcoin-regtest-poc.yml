@@ -7,6 +7,9 @@ on:
     paths:
       - ".github/workflows/bitcoin-regtest-poc.yml"
       - "system-tests/scripts/build-regtest-spv-proofs.py"
+      - "system-tests/scripts/validate-regtest-spv.ts"
+      - "system-tests/package.json"
+      - "solidity/test/bridge/Bridge.MovingFunds.test.ts"
   workflow_dispatch:
   pull_request:
     paths:
@@ -16,6 +19,8 @@ on:
       - "typescript/src/lib/bitcoin/**"
       - "system-tests/test/utils/bitcoin.ts"
       - "system-tests/scripts/build-regtest-spv-proofs.py"
+      - "system-tests/scripts/validate-regtest-spv.ts"
+      - "system-tests/package.json"
 
 permissions:
   contents: read
@@ -23,7 +28,7 @@ permissions:
 jobs:
   bitcoin-regtest-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -84,7 +89,10 @@ jobs:
 
           SOURCE_ADDRESS=$(eval "$BTC -rpcwallet=wallet-a getnewaddress '' legacy")
           TARGET_ADDRESS=$(eval "$BTC -rpcwallet=wallet-b getnewaddress '' legacy")
-          eval "$BTC -rpcwallet=wallet-a generatetoaddress 101 $SOURCE_ADDRESS" >/dev/null
+
+          # Fund wallet A with a single 1 BTC UTXO so the Bridge expects one target.
+          eval "$BTC -rpcwallet=poc sendtoaddress $SOURCE_ADDRESS 1.0" >/dev/null
+          eval "$BTC -rpcwallet=poc generatetoaddress 6 $SOURCE_ADDRESS" >/dev/null
 
           # Use sendall so each protocol transaction has exactly one output:
           # tBTC moving-funds and moved-funds-sweep transactions do not allow
@@ -138,6 +146,11 @@ jobs:
           # one-output P2PKH structure expected by the tBTC bridge.
           MOVING_DECODED=$(eval "$BTC decoderawtransaction $MOVING_HEX")
           SWEEP_DECODED=$(eval "$BTC decoderawtransaction $SWEEP_HEX")
+          MOVING_INPUT_TXID=$(echo "$MOVING_DECODED" | jq -r '.vin[0].txid')
+          MOVING_INPUT_VOUT=$(echo "$MOVING_DECODED" | jq -r '.vin[0].vout')
+          MOVING_PREVIOUS_RAW=$(eval "$BTC getrawtransaction $MOVING_INPUT_TXID")
+          MOVING_PREVIOUS_DECODED=$(eval "$BTC decoderawtransaction $MOVING_PREVIOUS_RAW")
+          SOURCE_MAIN_UTXO_VALUE=$(echo "$MOVING_PREVIOUS_DECODED" | jq -r --argjson index "$MOVING_INPUT_VOUT" '.vout[$index].value * 100000000 | round')
           test "$(echo "$MOVING_DECODED" | jq '.vin | length')" -eq 1
           test "$(echo "$MOVING_DECODED" | jq '.vout | length')" -eq 1
           test "$(echo "$SWEEP_DECODED" | jq '.vin | length')" -eq 1
@@ -151,6 +164,7 @@ jobs:
             --arg sourceAddress "$SOURCE_ADDRESS" \
             --arg targetAddress "$TARGET_ADDRESS" \
             --arg targetPubKeyHash "0x$TARGET_PKH" \
+            --argjson sourceMainUtxoValue "$SOURCE_MAIN_UTXO_VALUE" \
             --arg movingFundsTxid "$MOVING_TXID" \
             --arg movingFundsRawTx "$MOVING_HEX" \
             --arg movingFundsBlockHash "$MOVING_BLOCKHASH" \
@@ -171,7 +185,7 @@ jobs:
             --argjson sweepTxIndex "$SWEEP_TX_INDEX" \
             --argjson sweepBlockTxids "$SWEEP_BLOCK_TXIDS" \
             --argjson sweepHeaders "$SWEEP_HEADERS" \
-            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx,blockHash:$movingFundsBlockHash,blockHeight:$movingFundsBlockHeight,blockHeader:$movingFundsBlockHeader,coinbaseTxid:$movingFundsCoinbaseTxid,coinbaseRawTransaction:$movingFundsCoinbaseRawTx,txIndex:$movingFundsTxIndex,blockTxids:$movingFundsBlockTxids,headers:$movingFundsHeaders},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx,blockHash:$sweepBlockHash,blockHeight:$sweepBlockHeight,blockHeader:$sweepBlockHeader,coinbaseTxid:$sweepCoinbaseTxid,coinbaseRawTransaction:$sweepCoinbaseRawTx,txIndex:$sweepTxIndex,blockTxids:$sweepBlockTxids,headers:$sweepHeaders}}' \
+            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx,blockHash:$movingFundsBlockHash,blockHeight:$movingFundsBlockHeight,blockHeader:$movingFundsBlockHeader,coinbaseTxid:$movingFundsCoinbaseTxid,coinbaseRawTransaction:$movingFundsCoinbaseRawTx,txIndex:$movingFundsTxIndex,blockTxids:$movingFundsBlockTxids,headers:$movingFundsHeaders,sourceMainUtxoValue:$sourceMainUtxoValue},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx,blockHash:$sweepBlockHash,blockHeight:$sweepBlockHeight,blockHeader:$sweepBlockHeader,coinbaseTxid:$sweepCoinbaseTxid,coinbaseRawTransaction:$sweepCoinbaseRawTx,txIndex:$sweepTxIndex,blockTxids:$sweepBlockTxids,headers:$sweepHeaders}}' \
             > artifacts/regtest-poc/transactions.json
 
           echo "Moving header count: $(echo "$MOVING_HEADERS" | jq length)"
