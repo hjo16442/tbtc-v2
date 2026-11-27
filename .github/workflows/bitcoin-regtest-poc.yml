@@ -90,13 +90,17 @@ jobs:
           # tBTC moving-funds and moved-funds-sweep transactions do not allow
           # a Bitcoin Core change output.
           MOVING_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[$address]')
-          MOVING_TXID=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-a sendall "$MOVING_OUTPUTS")
+          MOVING_RESULT=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-a sendall "$MOVING_OUTPUTS")
+          MOVING_TXID=$(echo "$MOVING_RESULT" | jq -er '.txid')
+          test "${#MOVING_TXID}" -eq 64
           eval "$BTC -rpcwallet=wallet-a generatetoaddress 6 $SOURCE_ADDRESS" >/dev/null
 
           # Wallet B spends the only received UTXO back to its own wallet
           # address, again producing exactly one protocol-compatible output.
           SWEEP_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[$address]')
-          SWEEP_TXID=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-b sendall "$SWEEP_OUTPUTS")
+          SWEEP_RESULT=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-b sendall "$SWEEP_OUTPUTS")
+          SWEEP_TXID=$(echo "$SWEEP_RESULT" | jq -er '.txid')
+          test "${#SWEEP_TXID}" -eq 64
           eval "$BTC -rpcwallet=wallet-b generatetoaddress 6 $TARGET_ADDRESS" >/dev/null
 
           MOVING_INFO=$(eval "$BTC -rpcwallet=wallet-a gettransaction $MOVING_TXID")
