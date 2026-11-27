@@ -2584,12 +2584,10 @@ describe("Bridge - Moving funds", () => {
 
       expect(newRequest.state).to.equal(movedFundsSweepRequestState.Pending)
       expect(newRequest.walletPubKeyHash).to.equal(targetWalletPubKeyHash)
-      expect(newRequest.value).to.equal(
-        1464114
+      expect(newRequest.value).to.equal(1464114)
+      expect((await bridge.wallets(targetWalletPubKeyHash)).state).to.equal(
+        walletState.Terminated
       )
-      expect(
-        (await bridge.wallets(targetWalletPubKeyHash)).state
-      ).to.equal(walletState.Terminated)
       expect(
         (await bridge.wallets(targetWalletPubKeyHash))
           .pendingMovedFundsSweepRequestsCount
