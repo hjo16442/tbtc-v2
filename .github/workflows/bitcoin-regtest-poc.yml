@@ -30,6 +30,7 @@ jobs:
             -printtoconsole \
             -regtest=1 \
             -server=1 \
+            -txindex=1 \
             -listen=0 \
             -discover=0 \
             -dnsseed=0 \
@@ -89,8 +90,17 @@ jobs:
           SWEEP_TXID=$(eval "$BTC -rpcwallet=wallet-b sendtoaddress $TARGET_ADDRESS 0.499")
           eval "$BTC -rpcwallet=wallet-b generatetoaddress 6 $TARGET_ADDRESS" >/dev/null
 
-          MOVING_HEX=$(eval "$BTC -rpcwallet=wallet-a gettransaction $MOVING_TXID" | jq -r .hex)
-          SWEEP_HEX=$(eval "$BTC -rpcwallet=wallet-b gettransaction $SWEEP_TXID" | jq -r .hex)
+          MOVING_INFO=$(eval "$BTC -rpcwallet=wallet-a gettransaction $MOVING_TXID")
+          SWEEP_INFO=$(eval "$BTC -rpcwallet=wallet-b gettransaction $SWEEP_TXID")
+          MOVING_HEX=$(echo "$MOVING_INFO" | jq -r .hex)
+          SWEEP_HEX=$(echo "$SWEEP_INFO" | jq -r .hex)
+          MOVING_BLOCKHASH=$(echo "$MOVING_INFO" | jq -r .blockhash)
+          SWEEP_BLOCKHASH=$(echo "$SWEEP_INFO" | jq -r .blockhash)
+          MOVING_BLOCKHEIGHT=$(eval "$BTC getblockheader $MOVING_BLOCKHASH true" | jq -r .height)
+          SWEEP_BLOCKHEIGHT=$(eval "$BTC getblockheader $SWEEP_BLOCKHASH true" | jq -r .height)
+          # txindex makes raw transaction retrieval independent of wallet context.
+          test "$(eval "$BTC getrawtransaction $MOVING_TXID")" = "$MOVING_HEX"
+          test "$(eval "$BTC getrawtransaction $SWEEP_TXID")" = "$SWEEP_HEX"
           TARGET_SCRIPT=$(eval "$BTC -rpcwallet=wallet-b getaddressinfo $TARGET_ADDRESS" | jq -r .scriptPubKey)
           TARGET_PKH=$(echo "$TARGET_SCRIPT" | sed -E 's/^76a914([0-9a-f]{40})88ac$/\1/')
           test "${#TARGET_PKH}" -eq 40
@@ -102,9 +112,13 @@ jobs:
             --arg targetPubKeyHash "0x$TARGET_PKH" \
             --arg movingFundsTxid "$MOVING_TXID" \
             --arg movingFundsRawTx "$MOVING_HEX" \
+            --arg movingFundsBlockHash "$MOVING_BLOCKHASH" \
+            --argjson movingFundsBlockHeight "$MOVING_BLOCKHEIGHT" \
             --arg sweepTxid "$SWEEP_TXID" \
             --arg sweepRawTx "$SWEEP_HEX" \
-            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx}}' \
+            --arg sweepBlockHash "$SWEEP_BLOCKHASH" \
+            --argjson sweepBlockHeight "$SWEEP_BLOCKHEIGHT" \
+            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx,blockHash:$movingFundsBlockHash,blockHeight:$movingFundsBlockHeight},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx,blockHash:$sweepBlockHash,blockHeight:$sweepBlockHeight}}' \
             > artifacts/regtest-poc/transactions.json
 
           echo "Moving-funds tx: $MOVING_TXID"
