@@ -209,6 +209,22 @@ jobs:
           echo "Shared target pubKeyHash: 0x$TARGET_PKH"
           eval "$BTC getblockcount"
 
+      - name: Set up Node.js for tBTC TypeScript SPV validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install system-test dependencies
+        working-directory: system-tests
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Validate both proofs with repository TypeScript SPV logic
+        working-directory: system-tests
+        env:
+          NODE_PATH: ${{ github.workspace }}/system-tests/node_modules
+        run: |
+          npx ts-node --transpile-only --compiler-options '{"module":"commonjs","target":"es2020","esModuleInterop":true}' scripts/validate-regtest-spv.ts ../artifacts/regtest-poc/transactions.json
+
       - name: Upload regtest transaction fixtures
         uses: actions/upload-artifact@v4
         with:
