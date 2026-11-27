@@ -99,6 +99,7 @@ def build(entry):
     header = bytes.fromhex(entry["blockHeader"])
     if len(header) != 80 or root != header[36:68] or coinbase_root != header[36:68]:
         raise ValueError("Merkle branch does not match the block header root")
+    headers = entry["headers"]
     entry["spvProof"] = {
         "merkleProof": tx_proof,
         "txIndexInBlock": tx_index,
