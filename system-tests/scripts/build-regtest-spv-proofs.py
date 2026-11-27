@@ -82,6 +82,53 @@ def merkle_branch(txids, tx_index):
     return "".join(branch), level[0]
 
 
+
+def transaction_vectors(raw_hex, txid):
+    raw = bytes.fromhex(raw_hex)
+    version = raw[:4]
+    offset = 4
+    if raw[offset:offset + 2] == b"\x00\x01":
+        raise ValueError("Regtest protocol transactions must use legacy inputs")
+
+    input_start = offset
+    input_count, offset = read_varint(raw, offset)
+    if input_count != 1:
+        raise ValueError("Expected exactly one transaction input")
+    previous_tx_hash = raw[offset:offset + 32]
+    previous_output_index = int.from_bytes(raw[offset + 32:offset + 36], "little")
+    for _ in range(input_count):
+        offset += 36
+        script_len, offset = read_varint(raw, offset)
+        offset += script_len + 4
+    input_vector = raw[input_start:offset]
+
+    output_start = offset
+    output_count, offset = read_varint(raw, offset)
+    if output_count != 1:
+        raise ValueError("Expected exactly one transaction output")
+    output_value = int.from_bytes(raw[offset:offset + 8], "little")
+    for _ in range(output_count):
+        offset += 8
+        script_len, offset = read_varint(raw, offset)
+        offset += script_len
+    output_vector = raw[output_start:offset]
+    locktime = raw[-4:]
+
+    return {
+        "txInfo": {
+            "hash": "0x" + txid,
+            "version": "0x" + version.hex(),
+            "inputVector": "0x" + input_vector.hex(),
+            "outputVector": "0x" + output_vector.hex(),
+            "locktime": "0x" + locktime.hex(),
+        },
+        "outputValue": output_value,
+        "firstInput": {
+            "txHash": "0x" + previous_tx_hash.hex(),
+            "txOutputIndex": previous_output_index,
+        },
+    }
+
 def build(entry):
     txids = entry["blockTxids"]
     txid = entry["txid"]
@@ -107,6 +154,15 @@ def build(entry):
         "coinbasePreimage": coinbase_preimage(entry["coinbaseRawTransaction"]),
         "coinbaseProof": coinbase_proof,
     }
+    tx_vectors = transaction_vectors(entry["rawTransaction"], txid)
+    entry["txInfo"] = tx_vectors["txInfo"]
+    entry["outputValue"] = tx_vectors["outputValue"]
+    if "sourceMainUtxoValue" in entry:
+        entry["sourceMainUtxo"] = {
+            **tx_vectors["firstInput"],
+            "txOutputValue": entry["sourceMainUtxoValue"],
+        }
+        del entry["sourceMainUtxoValue"]
 
 
 def main(path):
