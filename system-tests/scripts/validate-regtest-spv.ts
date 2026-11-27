@@ -104,8 +104,8 @@ async function validateEntry(label: string, entry: RegtestEntry) {
   await validateBitcoinSpvProof(
     txHash,
     6,
-    BigNumber.from(1),
-    BigNumber.from(1),
+    BigNumber.from(0),
+    BigNumber.from(0),
     client
   )
   process.stdout.write("PASS: " + label + " proof assembled and validated by tBTC TypeScript SPV logic\n")
