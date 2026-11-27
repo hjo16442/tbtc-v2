@@ -2697,11 +2697,11 @@ describe("Bridge - Moving funds", () => {
       readFileSync(process.env.REGTEST_POC_FIXTURE, "utf8")
     ) as RegtestArtifact
     const toProof = (entry: RegtestEntry) => ({
-      merkleProof: "0x" + entry.spvProof.merkleProof,
+      merkleProof: `0x${entry.spvProof.merkleProof}`,
       txIndexInBlock: entry.spvProof.txIndexInBlock,
-      bitcoinHeaders: "0x" + entry.spvProof.bitcoinHeaders,
-      coinbasePreimage: "0x" + entry.spvProof.coinbasePreimage,
-      coinbaseProof: "0x" + entry.spvProof.coinbaseProof,
+      bitcoinHeaders: `0x${entry.spvProof.bitcoinHeaders}`,
+      coinbasePreimage: `0x${entry.spvProof.coinbasePreimage}`,
+      coinbaseProof: `0x${entry.spvProof.coinbaseProof}`,
     })
 
     describe("private Regtest end-to-end terminated target", () => {
