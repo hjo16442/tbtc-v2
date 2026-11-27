@@ -49,6 +49,21 @@ def dsha(data):
     return hashlib.sha256(hashlib.sha256(data).digest()).digest()
 
 
+def transaction_id(raw_hex):
+    return dsha(bytes.fromhex(raw_hex))[::-1].hex()
+
+
+def validate_header_chain(entry):
+    headers = [bytes.fromhex(h) for h in entry["headers"]]
+    if len(headers) != 6 or any(len(h) != 80 for h in headers):
+        raise ValueError("Expected six consecutive 80-byte headers")
+    if headers[0].hex() != entry["blockHeader"]:
+        raise ValueError("First proof header is not the transaction block header")
+    for previous, current in zip(headers, headers[1:]):
+        if current[4:36] != dsha(previous):
+            raise ValueError("Bitcoin header chain is not contiguous")
+
+
 def merkle_branch(txids, tx_index):
     level = [bytes.fromhex(txid)[::-1] for txid in txids]
     index = tx_index
@@ -70,6 +85,11 @@ def merkle_branch(txids, tx_index):
 def build(entry):
     txids = entry["blockTxids"]
     txid = entry["txid"]
+    if transaction_id(entry["rawTransaction"]) != txid:
+        raise ValueError("Raw transaction does not hash to the supplied txid")
+    if transaction_id(entry["coinbaseRawTransaction"]) != entry["coinbaseTxid"]:
+        raise ValueError("Raw coinbase transaction does not hash to the supplied coinbase txid")
+    validate_header_chain(entry)
     coinbase_txid = entry["coinbaseTxid"]
     tx_index = txids.index(txid)
     coinbase_index = txids.index(coinbase_txid)
@@ -79,10 +99,6 @@ def build(entry):
     header = bytes.fromhex(entry["blockHeader"])
     if len(header) != 80 or root != header[36:68] or coinbase_root != header[36:68]:
         raise ValueError("Merkle branch does not match the block header root")
-    headers = entry["headers"]
-    if len(headers) != 6 or any(len(bytes.fromhex(h)) != 80 for h in headers):
-        raise ValueError("Expected six consecutive 80-byte headers")
-
     entry["spvProof"] = {
         "merkleProof": tx_proof,
         "txIndexInBlock": tx_index,
