@@ -216,7 +216,7 @@ jobs:
 
       - name: Install system-test dependencies
         working-directory: system-tests
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit --no-fund
 
       - name: Validate both proofs with repository TypeScript SPV logic
         working-directory: system-tests
