@@ -214,16 +214,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install system-test dependencies
+      - name: Install isolated TypeScript SPV validation dependencies
         working-directory: system-tests
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+        run: |
+          npm install --prefix .poc-spv --no-save --no-audit --no-fund \
+            ethers@5.7.2 bitcoinjs-lib@6.1.5 bufio@1.0.6 \
+            ts-node@10.9.2 typescript@4.9.5
 
       - name: Validate both proofs with repository TypeScript SPV logic
         working-directory: system-tests
         env:
-          NODE_PATH: ${{ github.workspace }}/system-tests/node_modules
+          NODE_PATH: ${{ github.workspace }}/system-tests/.poc-spv/node_modules
         run: |
-          npx ts-node --transpile-only --compiler-options '{"module":"commonjs","target":"es2020","esModuleInterop":true}' scripts/validate-regtest-spv.ts ../artifacts/regtest-poc/transactions.json
+          .poc-spv/node_modules/.bin/ts-node --transpile-only --compiler-options '{"module":"commonjs","target":"es2020","esModuleInterop":true}' scripts/validate-regtest-spv.ts ../artifacts/regtest-poc/transactions.json
 
       - name: Install Solidity contract-test dependencies
         working-directory: solidity
