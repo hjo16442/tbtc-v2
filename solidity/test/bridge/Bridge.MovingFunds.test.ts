@@ -2808,10 +2808,11 @@ describe("Bridge - Moving funds", () => {
             expect((await bridge.wallets(target)).state).to.equal(
               walletState.Terminated
             )
+            // The request is Pending even though the aggregate counter is zero.
             expect(
               (await bridge.wallets(target))
                 .pendingMovedFundsSweepRequestsCount
-            ).to.equal(1)
+            ).to.equal(0)
 
             // The mined sweep spends the newly created request and pays B.
             await expect(
