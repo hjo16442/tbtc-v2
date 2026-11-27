@@ -116,13 +116,13 @@ def transaction_vectors(raw_hex, txid):
 
     return {
         "txInfo": {
-            "hash": "0x" + txid,
             "version": "0x" + version.hex(),
             "inputVector": "0x" + input_vector.hex(),
             "outputVector": "0x" + output_vector.hex(),
             "locktime": "0x" + locktime.hex(),
         },
         "outputValue": output_value,
+        "txHashInternal": "0x" + dsha(raw).hex(),
         "firstInput": {
             "txHash": "0x" + previous_tx_hash.hex(),
             "txOutputIndex": previous_output_index,
