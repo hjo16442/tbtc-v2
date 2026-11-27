@@ -42,7 +42,6 @@ import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
 
 type RegtestTxInfo = {
-  hash: string
   version: string
   inputVector: string
   outputVector: string
@@ -61,6 +60,7 @@ type RegtestEntry = {
   txInfo: RegtestTxInfo
   spvProof: RegtestProof
   outputValue: number
+  txHashInternal: string
 }
 
 type RegtestArtifact = {
@@ -2797,7 +2797,7 @@ describe("Bridge - Moving funds", () => {
               )
             const requestKey = ethers.utils.solidityKeccak256(
               ["bytes32", "uint32"],
-              [movingTx.hash, 0]
+              [regtest.movingFunds.txHashInternal, 0]
             )
             const request = await bridge.movedFundsSweepRequests(requestKey)
             expect(request.state).to.equal(
