@@ -2513,6 +2513,90 @@ describe("Bridge - Moving funds", () => {
     })
   })
 
+  describe("moving funds proof to a target terminated by an older sweep timeout", () => {
+    const targetWalletPubKeyHash =
+      "0x2cd680318747b720d67bf4246eb7403b476adb34"
+    const walletMembersIDs = [1, 2, 3, 4, 5]
+    const oldSweepRequest = {
+      walletPubKeyHash: targetWalletPubKeyHash,
+      txHash:
+        "0x1111111111111111111111111111111111111111111111111111111111111111",
+      txOutputIndex: 7,
+      txOutputValue: 1000,
+    }
+
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      walletRegistry.closeWallet.reset()
+      walletRegistry.seize.reset()
+      await restoreSnapshot()
+    })
+
+    it("accepts a moving funds proof that creates a pending sweep request for a target terminated by an older sweep timeout", async () => {
+      // The target is Live but already has an older pending sweep request.
+      await bridge.setWallet(targetWalletPubKeyHash, {
+        ecdsaWalletID: ecdsaWalletTestData.walletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+      await bridge.setPendingMovedFundsSweepRequest(
+        targetWalletPubKeyHash,
+        oldSweepRequest
+      )
+
+      // Expire the old request and terminate its Live target.
+      await increaseTime(movedFundsSweepTimeout)
+      await bridge
+        .connect(thirdParty)
+        .notifyMovedFundsSweepTimeout(
+          oldSweepRequest.txHash,
+          oldSweepRequest.txOutputIndex,
+          walletMembersIDs
+        )
+
+      expect(
+        (await bridge.wallets(targetWalletPubKeyHash)).state
+      ).to.equal(walletState.Terminated)
+      expect(
+        (await bridge.wallets(targetWalletPubKeyHash))
+          .pendingMovedFundsSweepRequestsCount
+      ).to.equal(0)
+
+      // The test data contains a valid Bitcoin moving-funds transaction and
+      // the already-committed target list. The proof is submitted after the
+      // target has become Terminated.
+      await runMovingFundsScenario(SingleTargetWallet)
+
+      const newRequestKey = ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [SingleTargetWallet.movingFundsTx.hash, 0]
+      )
+      const newRequest = await bridge.movedFundsSweepRequests(newRequestKey)
+
+      expect(newRequest.state).to.equal(movedFundsSweepRequestState.Pending)
+      expect(newRequest.walletPubKeyHash).to.equal(targetWalletPubKeyHash)
+      expect(newRequest.value).to.equal(
+        SingleTargetWallet.expectedMovedFundsSweepRequests![0].txOutputValue
+      )
+      expect(
+        (await bridge.wallets(targetWalletPubKeyHash)).state
+      ).to.equal(walletState.Terminated)
+      expect(
+        (await bridge.wallets(targetWalletPubKeyHash))
+          .pendingMovedFundsSweepRequestsCount
+      ).to.equal(1)
+    })
+  })
+
   describe("submitMovedFundsSweepProof", () => {
     context("when transaction proof is valid", () => {
       context("when there is only one output", () => {
