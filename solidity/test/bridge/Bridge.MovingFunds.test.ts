@@ -2830,7 +2830,9 @@ describe("Bridge - Moving funds", () => {
           await bridge
             .connect(thirdParty)
             .notifyMovedFundsSweepTimeout(movingTxHashInternal, 0, members)
-          const timedOutRequest = await bridge.movedFundsSweepRequests(requestKey)
+          const timedOutRequest = await bridge.movedFundsSweepRequests(
+            requestKey
+          )
           expect(timedOutRequest.state).to.equal(
             movedFundsSweepRequestState.TimedOut
           )
