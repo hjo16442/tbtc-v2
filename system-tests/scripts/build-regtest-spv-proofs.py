@@ -157,6 +157,7 @@ def build(entry):
     tx_vectors = transaction_vectors(entry["rawTransaction"], txid)
     entry["txInfo"] = tx_vectors["txInfo"]
     entry["outputValue"] = tx_vectors["outputValue"]
+    entry["txHashInternal"] = tx_vectors["txHashInternal"]
     if "sourceMainUtxoValue" in entry:
         entry["sourceMainUtxo"] = {
             **tx_vectors["firstInput"],
