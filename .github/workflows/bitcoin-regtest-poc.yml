@@ -1,0 +1,67 @@
+name: Bitcoin Regtest PoC Environment
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/bitcoin-regtest-poc.yml"
+      - "solidity/test/bridge/Bridge.MovingFunds.test.ts"
+      - "solidity/test/data/**"
+      - "typescript/src/lib/bitcoin/**"
+      - "system-tests/test/utils/bitcoin.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  bitcoin-regtest-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Start isolated Bitcoin Core regtest node
+        run: |
+          docker run -d --name bitcoin-regtest \
+            ruimarinho/bitcoin-core:28.0 \
+            -printtoconsole \
+            -regtest=1 \
+            -server=1 \
+            -listen=0 \
+            -connect=0 \
+            -discover=0 \
+            -dnsseed=0 \
+            -upnp=0 \
+            -rpcbind=127.0.0.1 \
+            -rpcallowip=127.0.0.1 \
+            -rpcuser=ci \
+            -rpcpassword=ci-only-local-password
+
+      - name: Wait for RPC
+        run: |
+          for attempt in $(seq 1 30); do
+            if docker exec --user bitcoin bitcoin-regtest bitcoin-cli \
+              -regtest -rpcuser=ci -rpcpassword=ci-only-local-password \
+              getblockchaininfo >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs bitcoin-regtest
+          exit 1
+
+      - name: Verify regtest and mine a private chain
+        run: |
+          BITCOIN_CLI="docker exec --user bitcoin bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
+          CHAIN=$(eval "$BITCOIN_CLI getblockchaininfo" | jq -r .chain)
+          test "$CHAIN" = "regtest"
+
+          eval "$BITCOIN_CLI createwallet poc"
+          ADDRESS=$(eval "$BITCOIN_CLI -rpcwallet=poc getnewaddress")
+          eval "$BITCOIN_CLI generatetoaddress 101 $ADDRESS" >/dev/null
+
+          BLOCKS=$(eval "$BITCOIN_CLI getblockcount")
+          test "$BLOCKS" = "101"
+          echo "Bitcoin Core regtest is ready; private chain height: $BLOCKS"
+
+      - name: Stop regtest node
+        if: always()
+        run: docker rm -f bitcoin-regtest || true
