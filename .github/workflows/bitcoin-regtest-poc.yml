@@ -157,6 +157,18 @@ jobs:
           echo "Moving header count: $(echo "$MOVING_HEADERS" | jq length)"
           echo "Sweep header count: $(echo "$SWEEP_HEADERS" | jq length)"
           python3 system-tests/scripts/build-regtest-spv-proofs.py artifacts/regtest-poc/transactions.json
+          # Fail the job unless both generated proofs are complete and structurally usable.
+          jq -e '
+            (.movingFunds.spvProof.merkleProof | type == "string" and (length % 2 == 0)) and
+            (.movingFunds.spvProof.bitcoinHeaders | length == 960) and
+            (.movingFunds.spvProof.coinbasePreimage | length > 0) and
+            (.movingFunds.spvProof.coinbaseProof | type == "string" and (length % 2 == 0)) and
+            (.sweep.spvProof.merkleProof | type == "string" and (length % 2 == 0)) and
+            (.sweep.spvProof.bitcoinHeaders | length == 960) and
+            (.sweep.spvProof.coinbasePreimage | length > 0) and
+            (.sweep.spvProof.coinbaseProof | type == "string" and (length % 2 == 0))
+          ' artifacts/regtest-poc/transactions.json >/dev/null
+          echo "Both regtest SPV proof structures passed validation."
 
           echo "Moving-funds tx: $MOVING_TXID"
           echo "Sweep tx: $SWEEP_TXID"
