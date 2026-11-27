@@ -2657,6 +2657,105 @@ describe("Bridge - Moving funds", () => {
     })
   })
 
+  if (process.env.REGTEST_POC_FIXTURE) {
+    const regtest = JSON.parse(require("fs").readFileSync(process.env.REGTEST_POC_FIXTURE, "utf8"))
+    const toProof = (entry: any) => ({
+      merkleProof: "0x" + entry.spvProof.merkleProof,
+      txIndexInBlock: entry.spvProof.txIndexInBlock,
+      bitcoinHeaders: "0x" + entry.spvProof.bitcoinHeaders,
+      coinbasePreimage: "0x" + entry.spvProof.coinbasePreimage,
+      coinbaseProof: "0x" + entry.spvProof.coinbaseProof,
+    })
+
+    describe("private Regtest end-to-end terminated target", () => {
+      it("creates a pending request for a Terminated target and rejects its matching sweep proof", async () => {
+        await createSnapshot()
+        try {
+          const target = regtest.targetPubKeyHash
+          const source = ecdsaWalletTestData.pubKeyHash160
+          const mainUtxo = regtest.movingFunds.sourceMainUtxo
+          const movingTx = regtest.movingFunds.txInfo
+          const movingProof = toProof(regtest.movingFunds)
+          const sweepTx = regtest.sweep.txInfo
+          const sweepProof = toProof(regtest.sweep)
+          const members = [1, 2, 3, 4, 5]
+          const oldRequest = {
+            walletPubKeyHash: target,
+            txHash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+            txOutputIndex: 7,
+            txOutputValue: 1000,
+          }
+
+          await bridge.setWallet(target, {
+            ecdsaWalletID: ecdsaWalletTestData.walletID,
+            mainUtxoHash: ethers.constants.HashZero,
+            pendingRedemptionsValue: 0,
+            createdAt: await lastBlockTime(),
+            movingFundsRequestedAt: 0,
+            closingStartedAt: 0,
+            pendingMovedFundsSweepRequestsCount: 0,
+            state: walletState.Live,
+            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          })
+          await bridge.setPendingMovedFundsSweepRequest(target, oldRequest)
+          await bridge.setWallet(source, {
+            ecdsaWalletID: ecdsaWalletTestData.walletID,
+            mainUtxoHash: ethers.constants.HashZero,
+            pendingRedemptionsValue: 0,
+            createdAt: await lastBlockTime(),
+            movingFundsRequestedAt: await lastBlockTime(),
+            closingStartedAt: 0,
+            pendingMovedFundsSweepRequestsCount: 0,
+            state: walletState.MovingFunds,
+            movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+          })
+          await bridge.setWalletMainUtxo(source, mainUtxo)
+          walletRegistry.isWalletMember.whenCalledWith(
+            ecdsaWalletTestData.walletID, members, thirdParty.address, 2
+          ).returns(true)
+          await deployer.sendTransaction({
+            to: reimbursementPool.address,
+            value: ethers.utils.parseEther("100"),
+          })
+          await bridge.connect(thirdParty).submitMovingFundsCommitment(
+            source, mainUtxo, members, 2, [target]
+          )
+
+          await increaseTime(movedFundsSweepTimeout)
+          await bridge.connect(thirdParty).notifyMovedFundsSweepTimeout(
+            oldRequest.txHash, oldRequest.txOutputIndex, members
+          )
+          expect((await bridge.wallets(target)).state).to.equal(walletState.Terminated)
+
+          relay.getCurrentEpochDifficulty.returns(1)
+          relay.getPrevEpochDifficulty.returns(1)
+          await bridge.connect(spvMaintainer).submitMovingFundsProof(
+            movingTx, movingProof, mainUtxo, source
+          )
+          const requestKey = ethers.utils.solidityKeccak256(
+            ["bytes32", "uint32"], [movingTx.hash, 0]
+          )
+          const request = await bridge.movedFundsSweepRequests(requestKey)
+          expect(request.state).to.equal(movedFundsSweepRequestState.Pending)
+          expect(request.walletPubKeyHash).to.equal(target)
+          expect(request.value).to.equal(regtest.movingFunds.outputValue)
+          expect((await bridge.wallets(target)).state).to.equal(walletState.Terminated)
+          expect((await bridge.wallets(target)).pendingMovedFundsSweepRequestsCount).to.equal(1)
+
+          await expect(
+            bridge.connect(spvMaintainer).submitMovedFundsSweepProof(
+              sweepTx, sweepProof, NO_MAIN_UTXO
+            )
+          ).to.be.revertedWith("Wallet must be in Live or MovingFunds state")
+        } finally {
+          relay.getCurrentEpochDifficulty.reset()
+          relay.getPrevEpochDifficulty.reset()
+          walletRegistry.isWalletMember.reset()
+          await restoreSnapshot()
+        }
+      })
+    })
+  }
   describe("moved funds sweep proof for a Terminated wallet", () => {
     it("rejects a valid Bitcoin sweep proof while the sweeping wallet is Terminated", async () => {
       const data: MovedFundsSweepTestData = {
