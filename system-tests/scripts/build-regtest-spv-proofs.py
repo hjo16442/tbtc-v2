@@ -22,7 +22,7 @@ def coinbase_preimage(raw_hex):
     version = raw[:4]
     offset = 4
     # Skip SegWit marker and flag; tBTC hashes the legacy transaction vectors.
-    if raw[offset:offset + 2] == b"\\x00\\x01":
+    if raw[offset:offset + 2] == b"\x00\x01":
         offset += 2
 
     input_start = offset
@@ -99,7 +99,7 @@ def main(path):
     build(data["sweep"])
     with open(path, "w", encoding="utf-8") as fixture:
         json.dump(data, fixture, indent=2)
-        fixture.write("\\n")
+        fixture.write("\n")
     print("SPV proof fields generated and Merkle roots verified against block headers")
 
 
