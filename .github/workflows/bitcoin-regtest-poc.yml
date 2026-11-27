@@ -236,6 +236,15 @@ jobs:
           corepack enable
           yarn install --immutable
 
+      - name: Format the Regtest contract test before execution
+        working-directory: solidity
+        run: |
+          yarn prettier --write test/bridge/Bridge.MovingFunds.test.ts
+          start=$(grep -n 'if (process.env.REGTEST_POC_FIXTURE)' test/bridge/Bridge.MovingFunds.test.ts | cut -d: -f1)
+          end=$(grep -n 'describe("moved funds sweep proof for a Terminated wallet"' test/bridge/Bridge.MovingFunds.test.ts | cut -d: -f1)
+          sed -n '1,90p' test/bridge/Bridge.MovingFunds.test.ts
+          sed -n "${start},$((end - 1))p" test/bridge/Bridge.MovingFunds.test.ts
+
       - name: Execute the same-target vulnerability scenario against Bridge
         working-directory: solidity
         env:
