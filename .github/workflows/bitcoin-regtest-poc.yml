@@ -91,7 +91,7 @@ jobs:
 
           MOVING_HEX=$(eval "$BTC -rpcwallet=wallet-a gettransaction $MOVING_TXID" | jq -r .hex)
           SWEEP_HEX=$(eval "$BTC -rpcwallet=wallet-b gettransaction $SWEEP_TXID" | jq -r .hex)
-          TARGET_SCRIPT=$(eval "$BTC getaddressinfo $TARGET_ADDRESS" | jq -r .scriptPubKey)
+          TARGET_SCRIPT=$(eval "$BTC -rpcwallet=wallet-b getaddressinfo $TARGET_ADDRESS" | jq -r .scriptPubKey)
           TARGET_PKH=$(echo "$TARGET_SCRIPT" | sed -E 's/^76a914([0-9a-f]{40})88ac$/\1/')
           test "${#TARGET_PKH}" -eq 40
 
