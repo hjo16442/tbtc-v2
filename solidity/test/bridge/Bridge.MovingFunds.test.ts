@@ -39,6 +39,41 @@ import {
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
+import { readFileSync } from "fs"
+
+type RegtestTxInfo = {
+  hash: string
+  version: string
+  inputVector: string
+  outputVector: string
+  locktime: string
+}
+
+type RegtestProof = {
+  merkleProof: string
+  txIndexInBlock: number
+  bitcoinHeaders: string
+  coinbasePreimage: string
+  coinbaseProof: string
+}
+
+type RegtestEntry = {
+  txInfo: RegtestTxInfo
+  spvProof: RegtestProof
+  outputValue: number
+}
+
+type RegtestArtifact = {
+  targetPubKeyHash: string
+  movingFunds: RegtestEntry & {
+    sourceMainUtxo: {
+      txHash: string
+      txOutputIndex: number
+      txOutputValue: number
+    }
+  }
+  sweep: RegtestEntry
+}
 
 chai.use(smock.matchers)
 
@@ -2658,8 +2693,10 @@ describe("Bridge - Moving funds", () => {
   })
 
   if (process.env.REGTEST_POC_FIXTURE) {
-    const regtest = JSON.parse(require("fs").readFileSync(process.env.REGTEST_POC_FIXTURE, "utf8"))
-    const toProof = (entry: any) => ({
+    const regtest = JSON.parse(
+      readFileSync(process.env.REGTEST_POC_FIXTURE, "utf8")
+    ) as RegtestArtifact
+    const toProof = (entry: RegtestEntry) => ({
       merkleProof: "0x" + entry.spvProof.merkleProof,
       txIndexInBlock: entry.spvProof.txIndexInBlock,
       bitcoinHeaders: "0x" + entry.spvProof.bitcoinHeaders,
