@@ -2553,6 +2553,54 @@ describe("Bridge - Moving funds", () => {
         oldSweepRequest
       )
 
+      // Submit a real commitment while the target is still Live, even though
+      // it already has an older pending moved-funds sweep request.
+      const sourceWalletPubKeyHash = SingleTargetWallet.wallet.pubKeyHash
+      const sourceMainUtxo = SingleTargetWallet.mainUtxo
+      await bridge.setWallet(sourceWalletPubKeyHash, {
+        ecdsaWalletID: SingleTargetWallet.wallet.ecdsaWalletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: await lastBlockTime(),
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.MovingFunds,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+      await bridge.setWalletMainUtxo(sourceWalletPubKeyHash, sourceMainUtxo)
+      walletRegistry.isWalletMember
+        .whenCalledWith(
+          SingleTargetWallet.wallet.ecdsaWalletID,
+          walletMembersIDs,
+          thirdParty.address,
+          2
+        )
+        .returns(true)
+      await deployer.sendTransaction({
+        to: reimbursementPool.address,
+        value: ethers.utils.parseEther("100"),
+      })
+      await bridge
+        .connect(thirdParty)
+        .submitMovingFundsCommitment(
+          sourceWalletPubKeyHash,
+          sourceMainUtxo,
+          walletMembersIDs,
+          2,
+          [targetWalletPubKeyHash]
+        )
+
+      expect(
+        (await bridge.wallets(sourceWalletPubKeyHash))
+          .movingFundsTargetWalletsCommitmentHash
+      ).to.equal(
+        ethers.utils.solidityKeccak256(
+          ["bytes20[]"],
+          [[targetWalletPubKeyHash]]
+        )
+      )
+
       // Expire the old request and terminate its Live target.
       await increaseTime(movedFundsSweepTimeout)
       await bridge
@@ -2574,7 +2622,20 @@ describe("Bridge - Moving funds", () => {
       // The test data contains a valid Bitcoin moving-funds transaction and
       // the already-committed target list. The proof is submitted after the
       // target has become Terminated.
-      await runMovingFundsScenario(SingleTargetWallet)
+      relay.getCurrentEpochDifficulty.returns(
+        SingleTargetWallet.chainDifficulty
+      )
+      relay.getPrevEpochDifficulty.returns(SingleTargetWallet.chainDifficulty)
+      await bridge
+        .connect(spvMaintainer)
+        .submitMovingFundsProof(
+          SingleTargetWallet.movingFundsTx,
+          SingleTargetWallet.movingFundsProof,
+          sourceMainUtxo,
+          sourceWalletPubKeyHash
+        )
+      relay.getCurrentEpochDifficulty.reset()
+      relay.getPrevEpochDifficulty.reset()
 
       const newRequestKey = ethers.utils.solidityKeccak256(
         ["bytes32", "uint32"],
