@@ -234,6 +234,8 @@ jobs:
         working-directory: solidity
         run: |
           corepack enable
+          corepack prepare yarn@4.12.0 --activate
+          git config --global url."https://".insteadOf git://
           yarn install --immutable
 
       - name: Format the Regtest contract test before execution
