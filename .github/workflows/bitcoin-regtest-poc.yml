@@ -80,12 +80,12 @@ jobs:
           eval "$BTC -rpcwallet=wallet-a generatetoaddress 101 $SOURCE_ADDRESS" >/dev/null
 
           # Wallet A's signed transaction moves real regtest BTC to wallet B.
-          MOVING_TXID=$(eval "$BTC -rpcwallet=wallet-a sendtoaddress $TARGET_ADDRESS 0.5)
+          MOVING_TXID=$(eval "$BTC -rpcwallet=wallet-a sendtoaddress $TARGET_ADDRESS 0.5")
           eval "$BTC -rpcwallet=wallet-a generatetoaddress 6 $SOURCE_ADDRESS" >/dev/null
 
           # Wallet B spends the received output into a sweep transaction whose
           # first destination is the same wallet-B P2PKH address.
-          SWEEP_TXID=$(eval "$BTC -rpcwallet=wallet-b sendtoaddress $TARGET_ADDRESS 0.499)
+          SWEEP_TXID=$(eval "$BTC -rpcwallet=wallet-b sendtoaddress $TARGET_ADDRESS 0.499")
           eval "$BTC -rpcwallet=wallet-b generatetoaddress 6 $TARGET_ADDRESS" >/dev/null
 
           MOVING_HEX=$(eval "$BTC getrawtransaction $MOVING_TXID")
