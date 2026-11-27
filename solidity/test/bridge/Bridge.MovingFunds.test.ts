@@ -2815,6 +2815,34 @@ describe("Bridge - Moving funds", () => {
           expect(
             (await bridge.movedFundsSweepRequests(requestKey)).state
           ).to.equal(movedFundsSweepRequestState.Pending)
+          // The Bitcoin output exists, but Bridge cannot credit it as the
+          // target wallet's main UTXO because the required sweep proof reverted.
+          expect((await bridge.wallets(target)).mainUtxoHash).to.equal(
+            ethers.constants.HashZero
+          )
+          expect(
+            (await bridge.wallets(target)).pendingMovedFundsSweepRequestsCount
+          ).to.equal(1)
+
+          // The request can eventually be timed out, but this only clears the
+          // pending request; it does not restore Bridge accounting for the BTC.
+          await increaseTime(movedFundsSweepTimeout)
+          await bridge
+            .connect(thirdParty)
+            .notifyMovedFundsSweepTimeout(movingTxHashInternal, 0, members)
+          const timedOutRequest = await bridge.movedFundsSweepRequests(requestKey)
+          expect(timedOutRequest.state).to.equal(
+            movedFundsSweepRequestState.TimedOut
+          )
+          expect((await bridge.wallets(target)).state).to.equal(
+            walletState.Terminated
+          )
+          expect((await bridge.wallets(target)).mainUtxoHash).to.equal(
+            ethers.constants.HashZero
+          )
+          expect(
+            (await bridge.wallets(target)).pendingMovedFundsSweepRequestsCount
+          ).to.equal(0)
         } finally {
           relay.getCurrentEpochDifficulty.reset()
           relay.getPrevEpochDifficulty.reset()
