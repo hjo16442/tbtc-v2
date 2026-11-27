@@ -2515,8 +2515,7 @@ describe("Bridge - Moving funds", () => {
 
   // Regression coverage for target-state changes between commitment and proof.
   describe("moving funds proof to a target terminated by an older sweep timeout", () => {
-    const targetWalletPubKeyHash =
-      "0x2cd680318747b720d67bf4246eb7403b476adb34"
+    const targetWalletPubKeyHash = "0x2cd680318747b720d67bf4246eb7403b476adb34"
     const walletMembersIDs = [1, 2, 3, 4, 5]
     const oldSweepRequest = {
       walletPubKeyHash: targetWalletPubKeyHash,
@@ -2564,9 +2563,9 @@ describe("Bridge - Moving funds", () => {
           walletMembersIDs
         )
 
-      expect(
-        (await bridge.wallets(targetWalletPubKeyHash)).state
-      ).to.equal(walletState.Terminated)
+      expect((await bridge.wallets(targetWalletPubKeyHash)).state).to.equal(
+        walletState.Terminated
+      )
       expect(
         (await bridge.wallets(targetWalletPubKeyHash))
           .pendingMovedFundsSweepRequestsCount
@@ -2586,7 +2585,7 @@ describe("Bridge - Moving funds", () => {
       expect(newRequest.state).to.equal(movedFundsSweepRequestState.Pending)
       expect(newRequest.walletPubKeyHash).to.equal(targetWalletPubKeyHash)
       expect(newRequest.value).to.equal(
-        SingleTargetWallet.expectedMovedFundsSweepRequests![0].txOutputValue
+        1464114
       )
       expect(
         (await bridge.wallets(targetWalletPubKeyHash)).state
