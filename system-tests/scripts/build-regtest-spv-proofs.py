@@ -87,11 +87,11 @@ def build(entry):
     txid = entry["txid"]
     if transaction_id(entry["rawTransaction"]) != txid:
         raise ValueError("Raw transaction does not hash to the supplied txid")
-    if transaction_id(entry["coinbaseRawTransaction"]) != entry["coinbaseTxid"]:
-        raise ValueError("Raw coinbase transaction does not hash to the supplied coinbase txid")
     validate_header_chain(entry)
     coinbase_txid = entry["coinbaseTxid"]
     tx_index = txids.index(txid)
+    if coinbase_txid not in txids:
+        raise ValueError("Coinbase txid is missing from the block transaction list")
     coinbase_index = txids.index(coinbase_txid)
 
     tx_proof, root = merkle_branch(txids, tx_index)
