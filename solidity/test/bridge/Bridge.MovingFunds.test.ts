@@ -2530,6 +2530,7 @@ describe("Bridge - Moving funds", () => {
     })
 
     after(async () => {
+      walletRegistry.isWalletMember.reset()
       walletRegistry.closeWallet.reset()
       walletRegistry.seize.reset()
       await restoreSnapshot()
