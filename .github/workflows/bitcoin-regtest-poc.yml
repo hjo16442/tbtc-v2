@@ -89,13 +89,13 @@ jobs:
           # Use sendall so each protocol transaction has exactly one output:
           # tBTC moving-funds and moved-funds-sweep transactions do not allow
           # a Bitcoin Core change output.
-          MOVING_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[{address:$address,amount:"ALL"}]')
+          MOVING_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[{address:$address}]')
           MOVING_TXID=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-a sendall "$MOVING_OUTPUTS")
           eval "$BTC -rpcwallet=wallet-a generatetoaddress 6 $SOURCE_ADDRESS" >/dev/null
 
           # Wallet B spends the only received UTXO back to its own wallet
           # address, again producing exactly one protocol-compatible output.
-          SWEEP_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[{address:$address,amount:"ALL"}]')
+          SWEEP_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[{address:$address}]')
           SWEEP_TXID=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-b sendall "$SWEEP_OUTPUTS")
           eval "$BTC -rpcwallet=wallet-b generatetoaddress 6 $TARGET_ADDRESS" >/dev/null
 
