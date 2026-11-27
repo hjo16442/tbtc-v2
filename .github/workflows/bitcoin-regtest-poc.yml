@@ -115,8 +115,8 @@ jobs:
           SWEEP_COINBASE_HEX=$(eval "$BTC getrawtransaction $SWEEP_COINBASE_TXID")
           MOVING_BLOCK_TXIDS=$(echo "$MOVING_BLOCK" | jq -c '[.tx[].txid]')
           SWEEP_BLOCK_TXIDS=$(echo "$SWEEP_BLOCK" | jq -c '[.tx[].txid]')
-          MOVING_HEADERS=$(for h in $(seq "$MOVING_BLOCKHEIGHT" "$((MOVING_BLOCKHEIGHT + 5))"); do BLOCKHASH=$(eval "$BTC getblockhash $h"); eval "$BTC getblockheader $BLOCKHASH false"; done | jq -R -s 'split("\n")[:-1]')
-          SWEEP_HEADERS=$(for h in $(seq "$SWEEP_BLOCKHEIGHT" "$((SWEEP_BLOCKHEIGHT + 5))"); do BLOCKHASH=$(eval "$BTC getblockhash $h"); eval "$BTC getblockheader $BLOCKHASH false"; done | jq -R -s 'split("\n")[:-1]')
+          MOVING_HEADERS=$(for h in $(seq "$MOVING_BLOCKHEIGHT" "$((MOVING_BLOCKHEIGHT + 5))"); do BLOCKHASH=$(eval "$BTC getblockhash $h"); eval "$BTC getblockheader $BLOCKHASH false"; done | jq -R -s 'split("\n") | map(select(length == 160))')
+          SWEEP_HEADERS=$(for h in $(seq "$SWEEP_BLOCKHEIGHT" "$((SWEEP_BLOCKHEIGHT + 5))"); do BLOCKHASH=$(eval "$BTC getblockhash $h"); eval "$BTC getblockheader $BLOCKHASH false"; done | jq -R -s 'split("\n") | map(select(length == 160))')
           test "$MOVING_TX_INDEX" != "null"
           test "$SWEEP_TX_INDEX" != "null"
           # txindex makes raw transaction retrieval independent of wallet context.
@@ -154,6 +154,8 @@ jobs:
             '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx,blockHash:$movingFundsBlockHash,blockHeight:$movingFundsBlockHeight,blockHeader:$movingFundsBlockHeader,coinbaseTxid:$movingFundsCoinbaseTxid,coinbaseRawTransaction:$movingFundsCoinbaseRawTx,txIndex:$movingFundsTxIndex,blockTxids:$movingFundsBlockTxids,headers:$movingFundsHeaders},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx,blockHash:$sweepBlockHash,blockHeight:$sweepBlockHeight,blockHeader:$sweepBlockHeader,coinbaseTxid:$sweepCoinbaseTxid,coinbaseRawTransaction:$sweepCoinbaseRawTx,txIndex:$sweepTxIndex,blockTxids:$sweepBlockTxids,headers:$sweepHeaders}}' \
             > artifacts/regtest-poc/transactions.json
 
+          echo "Moving header count: $(echo "$MOVING_HEADERS" | jq length)"
+          echo "Sweep header count: $(echo "$SWEEP_HEADERS" | jq length)"
           python3 system-tests/scripts/build-regtest-spv-proofs.py artifacts/regtest-poc/transactions.json
 
           echo "Moving-funds tx: $MOVING_TXID"
