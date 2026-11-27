@@ -254,6 +254,26 @@ jobs:
         run: |
           yarn test ./test/bridge/Bridge.MovingFunds.test.ts --grep "private Regtest end-to-end terminated target"
 
+      - name: Check Bitcoin-layer recovery with terminated wallet key custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          BTC="docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
+          # The Bridge test above has marked the target wallet Terminated.
+          # This isolated Bitcoin Core wallet models the documented off-chain
+          # coordination: operators who still control the threshold key shares
+          # can cooperate to spend the received UTXO outside the Bridge.
+          eval "$BTC createwallet recovery-destination"
+          RECOVERY_ADDRESS=$(eval "$BTC -rpcwallet=recovery-destination getnewaddress '' legacy")
+          RECOVERY_RESULT=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-b sendall "$(jq -cn --arg address "$RECOVERY_ADDRESS" '[$address]')")
+          RECOVERY_TXID=$(echo "$RECOVERY_RESULT" | jq -er '.txid')
+          test "$(echo "$RECOVERY_TXID" | wc -c)" -ge 65
+          eval "$BTC -rpcwallet=recovery-destination generatetoaddress 1 $RECOVERY_ADDRESS" >/dev/null
+          RECOVERY_INFO=$(eval "$BTC getrawtransaction $RECOVERY_TXID true")
+          test "$(echo "$RECOVERY_INFO" | jq -r '.confirmations')" -ge 1
+          echo "Bitcoin-layer recovery transaction confirmed: $RECOVERY_TXID"
+          echo "LIMITATION: this uses a local wallet key, not a threshold-signature simulation; it proves Bitcoin spendability only, not Bridge accounting recovery."
+
       - name: Upload regtest transaction fixtures
         uses: actions/upload-artifact@v4
         with:
