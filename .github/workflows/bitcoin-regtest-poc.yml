@@ -37,7 +37,8 @@ jobs:
             -rpcbind=127.0.0.1 \
             -rpcallowip=127.0.0.1 \
             -rpcuser=ci \
-            -rpcpassword=ci-only-local-password
+            -rpcpassword=ci-only-local-password \\
+            -fallbackfee=0.0002
 
       - name: Wait for RPC
         run: |
