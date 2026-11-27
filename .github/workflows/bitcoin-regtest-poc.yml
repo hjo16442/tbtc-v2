@@ -66,6 +66,57 @@ jobs:
           test "$BLOCKS" = "101"
           echo "Bitcoin Core regtest is ready; private chain height: $BLOCKS"
 
+      - name: Create and mine real moving-funds and sweep transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          BTC="docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
+
+          eval "$BTC createwallet wallet-a"
+          eval "$BTC createwallet wallet-b"
+
+          SOURCE_ADDRESS=$(eval "$BTC -rpcwallet=wallet-a getnewaddress '' legacy")
+          TARGET_ADDRESS=$(eval "$BTC -rpcwallet=wallet-b getnewaddress '' legacy")
+          eval "$BTC -rpcwallet=wallet-a generatetoaddress 101 $SOURCE_ADDRESS" >/dev/null
+
+          # Wallet A's signed transaction moves real regtest BTC to wallet B.
+          MOVING_TXID=$(eval "$BTC -rpcwallet=wallet-a sendtoaddress $TARGET_ADDRESS 0.5)
+          eval "$BTC -rpcwallet=wallet-a generatetoaddress 6 $SOURCE_ADDRESS" >/dev/null
+
+          # Wallet B spends the received output into a sweep transaction whose
+          # first destination is the same wallet-B P2PKH address.
+          SWEEP_TXID=$(eval "$BTC -rpcwallet=wallet-b sendtoaddress $TARGET_ADDRESS 0.499)
+          eval "$BTC -rpcwallet=wallet-b generatetoaddress 6 $TARGET_ADDRESS" >/dev/null
+
+          MOVING_HEX=$(eval "$BTC getrawtransaction $MOVING_TXID")
+          SWEEP_HEX=$(eval "$BTC getrawtransaction $SWEEP_TXID")
+          TARGET_SCRIPT=$(eval "$BTC getaddressinfo $TARGET_ADDRESS" | jq -r .scriptPubKey)
+          TARGET_PKH=$(echo "$TARGET_SCRIPT" | sed -E 's/^76a914([0-9a-f]{40})88ac$/\1/')
+          test "${#TARGET_PKH}" -eq 40
+
+          mkdir -p artifacts/regtest-poc
+          jq -n \
+            --arg sourceAddress "$SOURCE_ADDRESS" \
+            --arg targetAddress "$TARGET_ADDRESS" \
+            --arg targetPubKeyHash "0x$TARGET_PKH" \
+            --arg movingFundsTxid "$MOVING_TXID" \
+            --arg movingFundsRawTx "$MOVING_HEX" \
+            --arg sweepTxid "$SWEEP_TXID" \
+            --arg sweepRawTx "$SWEEP_HEX" \
+            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx}}' \
+            > artifacts/regtest-poc/transactions.json
+
+          echo "Moving-funds tx: $MOVING_TXID"
+          echo "Sweep tx: $SWEEP_TXID"
+          echo "Shared target pubKeyHash: 0x$TARGET_PKH"
+          eval "$BTC getblockcount"
+
+      - name: Upload regtest transaction fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: regtest-moving-funds-and-sweep-transactions
+          path: artifacts/regtest-poc/transactions.json
+
       - name: Stop regtest node
         if: always()
         run: docker rm -f bitcoin-regtest || true
