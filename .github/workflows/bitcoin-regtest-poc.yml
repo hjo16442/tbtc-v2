@@ -42,7 +42,7 @@ jobs:
       - name: Wait for RPC
         run: |
           for attempt in $(seq 1 30); do
-            if docker exec --user bitcoin bitcoin-regtest bitcoin-cli \
+            if docker exec bitcoin-regtest bitcoin-cli \
               -regtest -rpcuser=ci -rpcpassword=ci-only-local-password \
               getblockchaininfo >/dev/null 2>&1; then
               exit 0
@@ -54,7 +54,7 @@ jobs:
 
       - name: Verify regtest and mine a private chain
         run: |
-          BITCOIN_CLI="docker exec --user bitcoin bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
+          BITCOIN_CLI="docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
           CHAIN=$(eval "$BITCOIN_CLI getblockchaininfo" | jq -r .chain)
           test "$CHAIN" = "regtest"
 
