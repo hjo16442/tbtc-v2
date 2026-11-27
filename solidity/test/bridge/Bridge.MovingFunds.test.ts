@@ -2657,6 +2657,29 @@ describe("Bridge - Moving funds", () => {
     })
   })
 
+  describe("moved funds sweep proof for a Terminated wallet", () => {
+    it("rejects a valid Bitcoin sweep proof while the sweeping wallet is Terminated", async () => {
+      const data: MovedFundsSweepTestData = {
+        ...MovedFundsSweepWithoutMainUtxo,
+        wallet: {
+          ...MovedFundsSweepWithoutMainUtxo.wallet,
+          state: walletState.Terminated,
+        },
+      }
+
+      await createSnapshot()
+      try {
+        await expect(runMovedFundsSweepScenario(data)).to.be.revertedWith(
+          "Wallet must be in Live or MovingFunds state"
+        )
+      } finally {
+        relay.getCurrentEpochDifficulty.reset()
+        relay.getPrevEpochDifficulty.reset()
+        await restoreSnapshot()
+      }
+    })
+  })
+
   describe("submitMovedFundsSweepProof", () => {
     context("when transaction proof is valid", () => {
       context("when there is only one output", () => {
