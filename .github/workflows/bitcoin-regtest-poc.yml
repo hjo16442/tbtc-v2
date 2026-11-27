@@ -217,6 +217,8 @@ jobs:
       - name: Install isolated TypeScript SPV validation dependencies
         working-directory: system-tests
         run: |
+          mkdir -p .poc-spv
+          printf '{"private":true}\n' > .poc-spv/package.json
           npm install --prefix .poc-spv --no-save --no-audit --no-fund \
             ethers@5.7.2 bitcoinjs-lib@6.1.5 bufio@1.0.6 \
             ts-node@10.9.2 typescript@4.9.5
