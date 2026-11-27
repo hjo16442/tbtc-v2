@@ -2513,6 +2513,7 @@ describe("Bridge - Moving funds", () => {
     })
   })
 
+  // Regression coverage for target-state changes between commitment and proof.
   describe("moving funds proof to a target terminated by an older sweep timeout", () => {
     const targetWalletPubKeyHash =
       "0x2cd680318747b720d67bf4246eb7403b476adb34"
