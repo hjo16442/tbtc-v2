@@ -225,6 +225,19 @@ jobs:
         run: |
           npx ts-node --transpile-only --compiler-options '{"module":"commonjs","target":"es2020","esModuleInterop":true}' scripts/validate-regtest-spv.ts ../artifacts/regtest-poc/transactions.json
 
+      - name: Install Solidity contract-test dependencies
+        working-directory: solidity
+        run: |
+          corepack enable
+          yarn install --immutable
+
+      - name: Execute the same-target vulnerability scenario against Bridge
+        working-directory: solidity
+        env:
+          REGTEST_POC_FIXTURE: ${{ github.workspace }}/artifacts/regtest-poc/transactions.json
+        run: |
+          yarn test ./test/bridge/Bridge.MovingFunds.test.ts --grep "private Regtest end-to-end terminated target"
+
       - name: Upload regtest transaction fixtures
         uses: actions/upload-artifact@v4
         with:
