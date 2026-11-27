@@ -26,7 +26,6 @@ jobs:
             -regtest=1 \
             -server=1 \
             -listen=0 \
-            -connect=0 \
             -discover=0 \
             -dnsseed=0 \
             -upnp=0 \
