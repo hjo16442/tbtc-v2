@@ -96,8 +96,20 @@ jobs:
           SWEEP_HEX=$(echo "$SWEEP_INFO" | jq -r .hex)
           MOVING_BLOCKHASH=$(echo "$MOVING_INFO" | jq -r .blockhash)
           SWEEP_BLOCKHASH=$(echo "$SWEEP_INFO" | jq -r .blockhash)
-          MOVING_BLOCKHEIGHT=$(eval "$BTC getblockheader $MOVING_BLOCKHASH true" | jq -r .height)
-          SWEEP_BLOCKHEIGHT=$(eval "$BTC getblockheader $SWEEP_BLOCKHASH true" | jq -r .height)
+          MOVING_BLOCKHEADER=$(eval "$BTC getblockheader $MOVING_BLOCKHASH false")
+          SWEEP_BLOCKHEADER=$(eval "$BTC getblockheader $SWEEP_BLOCKHASH false")
+          MOVING_BLOCK=$(eval "$BTC getblock $MOVING_BLOCKHASH 2")
+          SWEEP_BLOCK=$(eval "$BTC getblock $SWEEP_BLOCKHASH 2")
+          MOVING_BLOCKHEIGHT=$(echo "$MOVING_BLOCK" | jq -r .height)
+          SWEEP_BLOCKHEIGHT=$(echo "$SWEEP_BLOCK" | jq -r .height)
+          MOVING_TX_INDEX=$(echo "$MOVING_BLOCK" | jq --arg tx "$MOVING_TXID" '[.tx[].txid] | index($tx)')
+          SWEEP_TX_INDEX=$(echo "$SWEEP_BLOCK" | jq --arg tx "$SWEEP_TXID" '[.tx[].txid] | index($tx)')
+          MOVING_COINBASE_TXID=$(echo "$MOVING_BLOCK" | jq -r '.tx[0].txid')
+          SWEEP_COINBASE_TXID=$(echo "$SWEEP_BLOCK" | jq -r '.tx[0].txid')
+          MOVING_COINBASE_HEX=$(eval "$BTC getrawtransaction $MOVING_COINBASE_TXID")
+          SWEEP_COINBASE_HEX=$(eval "$BTC getrawtransaction $SWEEP_COINBASE_TXID")
+          test "$MOVING_TX_INDEX" != "null"
+          test "$SWEEP_TX_INDEX" != "null"
           # txindex makes raw transaction retrieval independent of wallet context.
           test "$(eval "$BTC getrawtransaction $MOVING_TXID")" = "$MOVING_HEX"
           test "$(eval "$BTC getrawtransaction $SWEEP_TXID")" = "$SWEEP_HEX"
@@ -114,11 +126,19 @@ jobs:
             --arg movingFundsRawTx "$MOVING_HEX" \
             --arg movingFundsBlockHash "$MOVING_BLOCKHASH" \
             --argjson movingFundsBlockHeight "$MOVING_BLOCKHEIGHT" \
+            --arg movingFundsBlockHeader "$MOVING_BLOCKHEADER" \
+            --arg movingFundsCoinbaseTxid "$MOVING_COINBASE_TXID" \
+            --arg movingFundsCoinbaseRawTx "$MOVING_COINBASE_HEX" \
+            --argjson movingFundsTxIndex "$MOVING_TX_INDEX" \
             --arg sweepTxid "$SWEEP_TXID" \
             --arg sweepRawTx "$SWEEP_HEX" \
             --arg sweepBlockHash "$SWEEP_BLOCKHASH" \
             --argjson sweepBlockHeight "$SWEEP_BLOCKHEIGHT" \
-            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx,blockHash:$movingFundsBlockHash,blockHeight:$movingFundsBlockHeight},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx,blockHash:$sweepBlockHash,blockHeight:$sweepBlockHeight}}' \
+            --arg sweepBlockHeader "$SWEEP_BLOCKHEADER" \
+            --arg sweepCoinbaseTxid "$SWEEP_COINBASE_TXID" \
+            --arg sweepCoinbaseRawTx "$SWEEP_COINBASE_HEX" \
+            --argjson sweepTxIndex "$SWEEP_TX_INDEX" \
+            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx,blockHash:$movingFundsBlockHash,blockHeight:$movingFundsBlockHeight,blockHeader:$movingFundsBlockHeader,coinbaseTxid:$movingFundsCoinbaseTxid,coinbaseRawTransaction:$movingFundsCoinbaseRawTx,txIndex:$movingFundsTxIndex},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx,blockHash:$sweepBlockHash,blockHeight:$sweepBlockHeight,blockHeader:$sweepBlockHeader,coinbaseTxid:$sweepCoinbaseTxid,coinbaseRawTransaction:$sweepCoinbaseRawTx,txIndex:$sweepTxIndex}}' \
             > artifacts/regtest-poc/transactions.json
 
           echo "Moving-funds tx: $MOVING_TXID"
