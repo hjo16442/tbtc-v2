@@ -57,10 +57,10 @@ type RegtestProof = {
 }
 
 type RegtestEntry = {
+  txid: string
   txInfo: RegtestTxInfo
   spvProof: RegtestProof
   outputValue: number
-  txHashInternal: string
 }
 
 type RegtestArtifact = {
@@ -2795,9 +2795,19 @@ describe("Bridge - Moving funds", () => {
                 mainUtxo,
                 source
               )
+            const movingTxRaw =
+              `0x${movingTx.version.slice(2)}${movingTx.inputVector.slice(2)}${movingTx.outputVector.slice(2)}${movingTx.locktime.slice(2)}`
+            const movingTxHashInternal = ethers.utils.sha256(
+              ethers.utils.sha256(movingTxRaw)
+            )
+            expect(
+              ethers.utils.hexlify(
+                Buffer.from(movingTxHashInternal.slice(2), "hex").reverse()
+              )
+            ).to.equal(`0x${regtest.movingFunds.txid}`)
             const requestKey = ethers.utils.solidityKeccak256(
               ["bytes32", "uint32"],
-              [regtest.movingFunds.txHashInternal, 0]
+              [movingTxHashInternal, 0]
             )
             const request = await bridge.movedFundsSweepRequests(requestKey)
             expect(request.state).to.equal(
