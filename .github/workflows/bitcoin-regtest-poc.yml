@@ -1,0 +1,285 @@
+name: Bitcoin Regtest PoC Environment
+
+on:
+  push:
+    branches:
+      - poc/bitcoin-regtest-environment
+    paths:
+      - ".github/workflows/bitcoin-regtest-poc.yml"
+      - "system-tests/scripts/build-regtest-spv-proofs.py"
+      - "system-tests/scripts/validate-regtest-spv.ts"
+      - "system-tests/package.json"
+      - "solidity/test/bridge/Bridge.MovingFunds.test.ts"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/bitcoin-regtest-poc.yml"
+      - "solidity/test/bridge/Bridge.MovingFunds.test.ts"
+      - "solidity/test/data/**"
+      - "typescript/src/lib/bitcoin/**"
+      - "system-tests/test/utils/bitcoin.ts"
+      - "system-tests/scripts/build-regtest-spv-proofs.py"
+      - "system-tests/scripts/validate-regtest-spv.ts"
+      - "system-tests/package.json"
+
+permissions:
+  contents: read
+
+jobs:
+  bitcoin-regtest-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Start isolated Bitcoin Core regtest node
+        run: |
+          docker run -d --name bitcoin-regtest \
+            boltz/bitcoin-core:28.0 \
+            -printtoconsole \
+            -regtest=1 \
+            -server=1 \
+            -txindex=1 \
+            -listen=0 \
+            -discover=0 \
+            -dnsseed=0 \
+            -upnp=0 \
+            -rpcbind=127.0.0.1 \
+            -rpcallowip=127.0.0.1 \
+            -rpcuser=ci \
+            -rpcpassword=ci-only-local-password \
+            -fallbackfee=0.0002
+
+      - name: Wait for RPC
+        run: |
+          for attempt in $(seq 1 30); do
+            if docker exec bitcoin-regtest bitcoin-cli \
+              -regtest -rpcuser=ci -rpcpassword=ci-only-local-password \
+              getblockchaininfo >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs bitcoin-regtest
+          exit 1
+
+      - name: Verify regtest and mine a private chain
+        run: |
+          BITCOIN_CLI="docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
+          CHAIN=$(eval "$BITCOIN_CLI getblockchaininfo" | jq -r .chain)
+          test "$CHAIN" = "regtest"
+
+          eval "$BITCOIN_CLI createwallet poc"
+          ADDRESS=$(eval "$BITCOIN_CLI -rpcwallet=poc getnewaddress")
+          eval "$BITCOIN_CLI generatetoaddress 101 $ADDRESS" >/dev/null
+
+          BLOCKS=$(eval "$BITCOIN_CLI getblockcount")
+          test "$BLOCKS" = "101"
+          echo "Bitcoin Core regtest is ready; private chain height: $BLOCKS"
+
+      - name: Create and mine real moving-funds and sweep transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          BTC="docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
+
+          eval "$BTC createwallet wallet-a"
+          eval "$BTC createwallet wallet-b"
+
+          SOURCE_ADDRESS=$(eval "$BTC -rpcwallet=wallet-a getnewaddress '' legacy")
+          TARGET_ADDRESS=$(eval "$BTC -rpcwallet=wallet-b getnewaddress '' legacy")
+
+          # Fund wallet A with a single 1 BTC UTXO so the Bridge expects one target.
+          eval "$BTC -rpcwallet=poc sendtoaddress $SOURCE_ADDRESS 1.0" >/dev/null
+          eval "$BTC -rpcwallet=poc generatetoaddress 6 $SOURCE_ADDRESS" >/dev/null
+
+          # Use sendall so each protocol transaction has exactly one output:
+          # tBTC moving-funds and moved-funds-sweep transactions do not allow
+          # a Bitcoin Core change output.
+          MOVING_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[$address]')
+          MOVING_RESULT=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-a sendall "$MOVING_OUTPUTS")
+          MOVING_TXID=$(echo "$MOVING_RESULT" | jq -er '.txid')
+          test "${#MOVING_TXID}" -eq 64
+          eval "$BTC -rpcwallet=wallet-a generatetoaddress 6 $SOURCE_ADDRESS" >/dev/null
+
+          # Wallet B spends the only received UTXO back to its own wallet
+          # address, again producing exactly one protocol-compatible output.
+          SWEEP_OUTPUTS=$(jq -cn --arg address "$TARGET_ADDRESS" '[$address]')
+          SWEEP_RESULT=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-b sendall "$SWEEP_OUTPUTS")
+          SWEEP_TXID=$(echo "$SWEEP_RESULT" | jq -er '.txid')
+          test "${#SWEEP_TXID}" -eq 64
+          eval "$BTC -rpcwallet=wallet-b generatetoaddress 6 $TARGET_ADDRESS" >/dev/null
+
+          MOVING_INFO=$(eval "$BTC -rpcwallet=wallet-a gettransaction $MOVING_TXID")
+          SWEEP_INFO=$(eval "$BTC -rpcwallet=wallet-b gettransaction $SWEEP_TXID")
+          MOVING_HEX=$(echo "$MOVING_INFO" | jq -r .hex)
+          SWEEP_HEX=$(echo "$SWEEP_INFO" | jq -r .hex)
+          MOVING_BLOCKHASH=$(echo "$MOVING_INFO" | jq -r .blockhash)
+          SWEEP_BLOCKHASH=$(echo "$SWEEP_INFO" | jq -r .blockhash)
+          MOVING_BLOCKHEADER=$(eval "$BTC getblockheader $MOVING_BLOCKHASH false")
+          SWEEP_BLOCKHEADER=$(eval "$BTC getblockheader $SWEEP_BLOCKHASH false")
+          MOVING_BLOCK=$(eval "$BTC getblock $MOVING_BLOCKHASH 2")
+          SWEEP_BLOCK=$(eval "$BTC getblock $SWEEP_BLOCKHASH 2")
+          MOVING_BLOCKHEIGHT=$(echo "$MOVING_BLOCK" | jq -r .height)
+          SWEEP_BLOCKHEIGHT=$(echo "$SWEEP_BLOCK" | jq -r .height)
+          MOVING_TX_INDEX=$(echo "$MOVING_BLOCK" | jq --arg tx "$MOVING_TXID" '[.tx[].txid] | index($tx)')
+          SWEEP_TX_INDEX=$(echo "$SWEEP_BLOCK" | jq --arg tx "$SWEEP_TXID" '[.tx[].txid] | index($tx)')
+          MOVING_COINBASE_TXID=$(echo "$MOVING_BLOCK" | jq -r '.tx[0].txid')
+          SWEEP_COINBASE_TXID=$(echo "$SWEEP_BLOCK" | jq -r '.tx[0].txid')
+          MOVING_COINBASE_HEX=$(eval "$BTC getrawtransaction $MOVING_COINBASE_TXID")
+          SWEEP_COINBASE_HEX=$(eval "$BTC getrawtransaction $SWEEP_COINBASE_TXID")
+          MOVING_BLOCK_TXIDS=$(echo "$MOVING_BLOCK" | jq -c '[.tx[].txid]')
+          SWEEP_BLOCK_TXIDS=$(echo "$SWEEP_BLOCK" | jq -c '[.tx[].txid]')
+          MOVING_HEADERS=$(for h in $(seq "$MOVING_BLOCKHEIGHT" "$((MOVING_BLOCKHEIGHT + 5))"); do BLOCKHASH=$(eval "$BTC getblockhash $h"); eval "$BTC getblockheader $BLOCKHASH false"; done | jq -R -s 'split("\n") | map(select(length == 160))')
+          SWEEP_HEADERS=$(for h in $(seq "$SWEEP_BLOCKHEIGHT" "$((SWEEP_BLOCKHEIGHT + 5))"); do BLOCKHASH=$(eval "$BTC getblockhash $h"); eval "$BTC getblockheader $BLOCKHASH false"; done | jq -R -s 'split("\n") | map(select(length == 160))')
+          test "$MOVING_TX_INDEX" != "null"
+          test "$SWEEP_TX_INDEX" != "null"
+          # txindex makes raw transaction retrieval independent of wallet context.
+          test "$(eval "$BTC getrawtransaction $MOVING_TXID")" = "$MOVING_HEX"
+          test "$(eval "$BTC getrawtransaction $SWEEP_TXID")" = "$SWEEP_HEX"
+          TARGET_SCRIPT=$(eval "$BTC -rpcwallet=wallet-b getaddressinfo $TARGET_ADDRESS" | jq -r .scriptPubKey)
+          TARGET_PKH=$(echo "$TARGET_SCRIPT" | sed -E 's/^76a914([0-9a-f]{40})88ac$/\1/')
+          test "${#TARGET_PKH}" -eq 40
+
+          # Fail closed unless the mined Bitcoin transactions have the exact
+          # one-output P2PKH structure expected by the tBTC bridge.
+          MOVING_DECODED=$(eval "$BTC decoderawtransaction $MOVING_HEX")
+          SWEEP_DECODED=$(eval "$BTC decoderawtransaction $SWEEP_HEX")
+          MOVING_INPUT_TXID=$(echo "$MOVING_DECODED" | jq -r '.vin[0].txid')
+          MOVING_INPUT_VOUT=$(echo "$MOVING_DECODED" | jq -r '.vin[0].vout')
+          MOVING_PREVIOUS_RAW=$(eval "$BTC getrawtransaction $MOVING_INPUT_TXID")
+          MOVING_PREVIOUS_DECODED=$(eval "$BTC decoderawtransaction $MOVING_PREVIOUS_RAW")
+          SOURCE_MAIN_UTXO_VALUE=$(echo "$MOVING_PREVIOUS_DECODED" | jq -r --argjson index "$MOVING_INPUT_VOUT" '.vout[$index].value * 100000000 | round')
+          test "$(echo "$MOVING_DECODED" | jq '.vin | length')" -eq 1
+          test "$(echo "$MOVING_DECODED" | jq '.vout | length')" -eq 1
+          test "$(echo "$SWEEP_DECODED" | jq '.vin | length')" -eq 1
+          test "$(echo "$SWEEP_DECODED" | jq '.vout | length')" -eq 1
+          test "$(echo "$MOVING_DECODED" | jq -r '.vout[0].scriptPubKey.hex')" = "$TARGET_SCRIPT"
+          test "$(echo "$SWEEP_DECODED" | jq -r '.vout[0].scriptPubKey.hex')" = "$TARGET_SCRIPT"
+          test "$(echo "$SWEEP_DECODED" | jq -r '.vin[0].txid')" = "$MOVING_TXID"
+
+          mkdir -p artifacts/regtest-poc
+          jq -n \
+            --arg sourceAddress "$SOURCE_ADDRESS" \
+            --arg targetAddress "$TARGET_ADDRESS" \
+            --arg targetPubKeyHash "0x$TARGET_PKH" \
+            --argjson sourceMainUtxoValue "$SOURCE_MAIN_UTXO_VALUE" \
+            --arg movingFundsTxid "$MOVING_TXID" \
+            --arg movingFundsRawTx "$MOVING_HEX" \
+            --arg movingFundsBlockHash "$MOVING_BLOCKHASH" \
+            --argjson movingFundsBlockHeight "$MOVING_BLOCKHEIGHT" \
+            --arg movingFundsBlockHeader "$MOVING_BLOCKHEADER" \
+            --arg movingFundsCoinbaseTxid "$MOVING_COINBASE_TXID" \
+            --arg movingFundsCoinbaseRawTx "$MOVING_COINBASE_HEX" \
+            --argjson movingFundsTxIndex "$MOVING_TX_INDEX" \
+            --argjson movingFundsBlockTxids "$MOVING_BLOCK_TXIDS" \
+            --argjson movingFundsHeaders "$MOVING_HEADERS" \
+            --arg sweepTxid "$SWEEP_TXID" \
+            --arg sweepRawTx "$SWEEP_HEX" \
+            --arg sweepBlockHash "$SWEEP_BLOCKHASH" \
+            --argjson sweepBlockHeight "$SWEEP_BLOCKHEIGHT" \
+            --arg sweepBlockHeader "$SWEEP_BLOCKHEADER" \
+            --arg sweepCoinbaseTxid "$SWEEP_COINBASE_TXID" \
+            --arg sweepCoinbaseRawTx "$SWEEP_COINBASE_HEX" \
+            --argjson sweepTxIndex "$SWEEP_TX_INDEX" \
+            --argjson sweepBlockTxids "$SWEEP_BLOCK_TXIDS" \
+            --argjson sweepHeaders "$SWEEP_HEADERS" \
+            '{network:"regtest",sourceAddress:$sourceAddress,targetAddress:$targetAddress,targetPubKeyHash:$targetPubKeyHash,movingFunds:{txid:$movingFundsTxid,rawTransaction:$movingFundsRawTx,blockHash:$movingFundsBlockHash,blockHeight:$movingFundsBlockHeight,blockHeader:$movingFundsBlockHeader,coinbaseTxid:$movingFundsCoinbaseTxid,coinbaseRawTransaction:$movingFundsCoinbaseRawTx,txIndex:$movingFundsTxIndex,blockTxids:$movingFundsBlockTxids,headers:$movingFundsHeaders,sourceMainUtxoValue:$sourceMainUtxoValue},sweep:{txid:$sweepTxid,rawTransaction:$sweepRawTx,blockHash:$sweepBlockHash,blockHeight:$sweepBlockHeight,blockHeader:$sweepBlockHeader,coinbaseTxid:$sweepCoinbaseTxid,coinbaseRawTransaction:$sweepCoinbaseRawTx,txIndex:$sweepTxIndex,blockTxids:$sweepBlockTxids,headers:$sweepHeaders}}' \
+            > artifacts/regtest-poc/transactions.json
+
+          echo "Moving header count: $(echo "$MOVING_HEADERS" | jq length)"
+          echo "Sweep header count: $(echo "$SWEEP_HEADERS" | jq length)"
+          python3 system-tests/scripts/build-regtest-spv-proofs.py artifacts/regtest-poc/transactions.json
+          # Fail the job unless both generated proofs are complete and structurally usable.
+          jq -e '
+            (.movingFunds.spvProof.merkleProof | type == "string" and (length % 2 == 0)) and
+            (.movingFunds.spvProof.bitcoinHeaders | length == 960) and
+            (.movingFunds.spvProof.coinbasePreimage | length > 0) and
+            (.movingFunds.spvProof.coinbaseProof | type == "string" and (length % 2 == 0)) and
+            (.sweep.spvProof.merkleProof | type == "string" and (length % 2 == 0)) and
+            (.sweep.spvProof.bitcoinHeaders | length == 960) and
+            (.sweep.spvProof.coinbasePreimage | length > 0) and
+            (.sweep.spvProof.coinbaseProof | type == "string" and (length % 2 == 0))
+          ' artifacts/regtest-poc/transactions.json >/dev/null
+          echo "Both regtest SPV proof structures passed validation."
+
+          echo "Moving-funds tx: $MOVING_TXID"
+          echo "Sweep tx: $SWEEP_TXID"
+          echo "Shared target pubKeyHash: 0x$TARGET_PKH"
+          eval "$BTC getblockcount"
+
+      - name: Set up Node.js for tBTC TypeScript SPV validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install isolated TypeScript SPV validation dependencies
+        working-directory: system-tests
+        run: |
+          mkdir -p .poc-spv
+          printf '{"private":true}\n' > .poc-spv/package.json
+          npm install --prefix .poc-spv --no-save --no-audit --no-fund \
+            ethers@5.7.2 bitcoinjs-lib@6.1.5 bufio@1.0.6 \
+            ts-node@10.9.2 typescript@4.9.5
+
+      - name: Validate both proofs with repository TypeScript SPV logic
+        working-directory: system-tests
+        env:
+          NODE_PATH: ${{ github.workspace }}/system-tests/.poc-spv/node_modules
+        run: |
+          .poc-spv/node_modules/.bin/ts-node --transpile-only --compiler-options '{"module":"commonjs","target":"es2020","esModuleInterop":true}' scripts/validate-regtest-spv.ts ../artifacts/regtest-poc/transactions.json
+
+      - name: Install Solidity contract-test dependencies
+        working-directory: solidity
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+          git config --global url."https://".insteadOf git://
+          yarn install --immutable
+
+      - name: Format the Regtest contract test before execution
+        working-directory: solidity
+        run: |
+          yarn prettier --write test/bridge/Bridge.MovingFunds.test.ts
+          start=$(grep -n 'if (process.env.REGTEST_POC_FIXTURE)' test/bridge/Bridge.MovingFunds.test.ts | cut -d: -f1)
+          end=$(grep -n 'describe("moved funds sweep proof for a Terminated wallet"' test/bridge/Bridge.MovingFunds.test.ts | cut -d: -f1)
+          sed -n '1,90p' test/bridge/Bridge.MovingFunds.test.ts
+          sed -n "${start},$((end - 1))p" test/bridge/Bridge.MovingFunds.test.ts
+
+      - name: Execute the same-target vulnerability scenario against Bridge
+        working-directory: solidity
+        env:
+          REGTEST_POC_FIXTURE: ${{ github.workspace }}/artifacts/regtest-poc/transactions.json
+        run: |
+          yarn test ./test/bridge/Bridge.MovingFunds.test.ts --grep "private Regtest end-to-end terminated target"
+
+      - name: Check Bitcoin-layer recovery with terminated wallet key custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          BTC="docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password"
+          # The Bridge test above has marked the target wallet Terminated.
+          # This isolated Bitcoin Core wallet models the documented off-chain
+          # coordination: operators who still control the threshold key shares
+          # can cooperate to spend the received UTXO outside the Bridge.
+          eval "$BTC createwallet recovery-destination"
+          RECOVERY_ADDRESS=$(eval "$BTC -rpcwallet=recovery-destination getnewaddress '' legacy")
+          RECOVERY_RESULT=$(docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=ci -rpcpassword=ci-only-local-password -rpcwallet=wallet-b sendall "$(jq -cn --arg address "$RECOVERY_ADDRESS" '[$address]')")
+          RECOVERY_TXID=$(echo "$RECOVERY_RESULT" | jq -er '.txid')
+          test "$(echo "$RECOVERY_TXID" | wc -c)" -ge 65
+          eval "$BTC -rpcwallet=recovery-destination generatetoaddress 1 $RECOVERY_ADDRESS" >/dev/null
+          RECOVERY_INFO=$(eval "$BTC getrawtransaction $RECOVERY_TXID true")
+          test "$(echo "$RECOVERY_INFO" | jq -r '.confirmations')" -ge 1
+          echo "Bitcoin-layer recovery transaction confirmed: $RECOVERY_TXID"
+          echo "LIMITATION: this uses a local wallet key, not a threshold-signature simulation; it proves Bitcoin spendability only, not Bridge accounting recovery."
+
+      - name: Upload regtest transaction fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: regtest-moving-funds-and-sweep-transactions
+          path: artifacts/regtest-poc/transactions.json
+
+      - name: Stop regtest node
+        if: always()
+        run: docker rm -f bitcoin-regtest || true
