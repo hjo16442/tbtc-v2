@@ -33,13 +33,13 @@ The normal `submitMovedFundsSweepProof` path then rejects the matching sweep pro
 - Solidity workflow #60: success — https://github.com/hjo16442/tbtc-v2/actions/runs/46066127759
 - Code Format Checks #60: success — https://github.com/hjo16442/tbtc-v2/actions/runs/46066127714
 - Solidity docs #60: success — https://github.com/hjo16442/tbtc-v2/actions/runs/46066128139
-- Supporting Keep Core 4-of-5 local group-signing and terminated-wallet archival experiment: https://github.com/hjo16442/keep-core/pull/3 (client CI run #13 passed all 9 jobs).
+- Supporting Keep Core multi-operator experiment: https://github.com/hjo16442/keep-core/pull/3. Client CI run #13 passed all 9 jobs. A follow-up test on commit `977cdb04fa4047a6cc1bd841ccc21a100b62151b` exercises 5 independent node objects (one share each) and verifies 4-of-5 group signing both before and after wallet archival using the already-cached signing executors. The Go test step in client CI run #14 completed successfully; Docker/runtime packaging was still running when this report revision was prepared.
 
 ## Impact and recovery caveats
 
 The directly demonstrated impact is that a new pending request can be created for a destination wallet that is already Terminated, while the ordinary on-chain sweep-proof route rejects the corresponding proof. The request remains pending until the timeout handler processes it; the timeout clears the pending-request count but does not itself demonstrate restoration of the destination wallet's Bridge accounting.
 
-Protocol documentation describes off-chain coordination with wallet group members as the recovery route for Terminated wallets. The supporting Keep Core experiment demonstrates a local 4-of-5 group-signing session and removal of the wallet from each node's active registry during archival. It does not prove that archived shares can or cannot be manually recovered, nor that the Bridge's on-chain UTXO accounting can be restored.
+Protocol documentation describes off-chain coordination with wallet group members as the recovery route for Terminated wallets. The supporting Keep Core experiment demonstrates a local 4-of-5 group-signing session and removal of the wallet from each node's active registry during archival. The follow-up test also demonstrates that executors created before archival can still produce a valid group signature afterward, while those executors remain in memory. This is an important limitation on the interpretation of archival: it is not immediate revocation of already-cached signing capability. It does not prove that a restarted node can reload archived shares, that archived shares can or cannot be manually recovered, nor that the Bridge's on-chain UTXO accounting can be restored.
 
 The local regtest wallet-key spendability check is a Bitcoin-layer check only; it is not proof of threshold-signature recovery or Bridge accounting recovery.
 
